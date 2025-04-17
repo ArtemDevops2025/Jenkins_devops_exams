@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: StatefulSet 
+metadata:
+  labels:
+    app: {{ .Values.cast_db.app }}
+  name: {{ .Values.cast_db.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.cast_db.replicaCount }}
+  serviceName: cast-db
+  selector:
+    matchLabels:
+      app: {{ .Values.cast_db.app }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.cast_db.app }}
+    spec:
+      containers:
+        - env:
+            - name: POSTGRES_DB
+              value: cast_db_dev
+            - name: POSTGRES_PASSWORD
+              value: cast_db_password
+            - name: POSTGRES_USER
+              value: cast_db_username
+          image: postgres:12.1-alpine
+          name: cast-db
+          ports:
+            - containerPort: {{ .Values.cast_db.containerPort }}
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - mountPath: {{ .Values.volumeMounts.mountPath }}
+              name: {{ .Values.volumeMounts.name }}
+      restartPolicy: Always
+      volumes:
+        - name: {{ .Values.volumeMounts.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.volumes.claimName }}
+

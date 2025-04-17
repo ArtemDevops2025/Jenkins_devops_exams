@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: {{ .Values.movie_db.app }}
+  name: {{ .Values.movie_db.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.cast_db.replicaCount }}
+  serviceName: movie-db
+  selector:
+    matchLabels:
+      app: {{ .Values.movie_db.app }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.movie_db.app }}
+    spec:
+      containers:
+        - env:
+            - name: POSTGRES_DB
+              value: movie_db_dev
+            - name: POSTGRES_PASSWORD
+              value: movie_db_password
+            - name: POSTGRES_USER
+              value: movie_db_username
+          image: postgres:12.1-alpine
+          name: movie-db
+          ports:
+            - containerPort: {{ .Values.movie_db.containerPort }}
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - mountPath: {{ .Values.movie_db.volumeMounts.mountPath }}
+              name: {{ .Values.movie_db.volumeMounts.name }}
+      restartPolicy: Always
+      volumes:
+        - name: {{ .Values.movie_db.volumeMounts.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.movie_db.volumes.claimName }}
+

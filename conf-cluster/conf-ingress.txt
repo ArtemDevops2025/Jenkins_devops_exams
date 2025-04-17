@@ -1,0 +1,27 @@
+Install kind
+
+# For AMD64 / x86_64
+[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+# For ARM64
+[ $(uname -m) = aarch64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-arm64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+Install cluster from a file: 
+    kind create cluster --config kind.yaml
+
+
+Install Loadbalancer Metallb:
+  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+  
+ create IPaddresspool:
+    
+
+
+
+Install ingress-controller nginx
+https://kubernetes.github.io/ingress-nginx/deploy/
+
+helm upgrade --install ingress-nginx ingress-nginx \
+  --repo https://kubernetes.github.io/ingress-nginx \
+  --namespace ingress-nginx --create-namespace

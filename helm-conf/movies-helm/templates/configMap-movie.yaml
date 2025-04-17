@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.movie_db.configMap }}
+  namespace: {{ .Values.namespace }}
+data:
+  POSTGRES_DB: movie_db_dev
+  POSTGRES_USER: movie_db_username
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.movie_svc.configMap }}
+  namespace: {{ .Values.namespace }}
+data:
+  DATABASE_URI: postgresql://movie_db_username:movie_db_password@movie-db-svc/movie_db_dev
+  CAST_SERVICE_HOST_URL: http://cast_service:8000/api/v1/casts/

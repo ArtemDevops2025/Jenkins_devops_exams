@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.movie_svc.app }}
+  name: {{ .Values.movie_svc.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.cast_db.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.movie_svc.app }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.movie_svc.app }}
+    spec:
+      initContainers:
+      - name: check-db-ready
+        image: postgres:9.6.5
+        command: ['sh', '-c', 
+          'until pg_isready -h movie-db-svc -p 5432; 
+          do echo waiting for database; sleep 2; done;']
+      containers:
+        - args:
+            - uvicorn
+            - app.main:app
+            - --reload
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: CAST_SERVICE_HOST_URL
+              value: http://cast_service:8000/api/v1/casts/
+            - name: DATABASE_URI
+              value: postgresql://movie_db_username:movie_db_password@movie-db-svc/movie_db_dev
+          image: "{{ .Values.movie_svc.image.name }}:{{ .Values.movie_svc.image.tag }}"
+          name: movie-service
+          ports:
+            - containerPort: {{ .Values.movie_svc.containerPort }}
+              protocol: TCP
+          resources: {}
+      restartPolicy: Always
+status: {}

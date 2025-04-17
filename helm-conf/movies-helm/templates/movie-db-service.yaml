@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: movie-db-svc
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.movie_db.app }}
+spec:
+  selector:
+    app: {{ .Values.movie_db.app }}
+  ports:
+   - name: tcp
+     port: 5432
+     targetPort: 5432

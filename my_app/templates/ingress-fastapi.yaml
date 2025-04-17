@@ -1,0 +1,33 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.ingress.name }}
+  namespace: {{ .Values.namespace }}
+  #annotations:
+    #nginx.ingress.kubernetes.io/rewrite-target: /
+  labels:
+    name: myingress
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+   {{- range .Values.ingress.hosts }}
+  - host: {{ .host | quote }}
+   {{- end }}
+    http:
+      paths:
+        - pathType: Prefix
+          path: /api/v1/casts
+          backend:
+            service:
+              name: cast-service
+              port: 
+                number: 8000
+        - pathType: Prefix
+          path: /api/v1/movies
+          backend:
+            service:
+              name: movie-service
+              port: 
+                number: 8000        
+{{- end }}

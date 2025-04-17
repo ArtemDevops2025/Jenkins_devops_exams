@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: movie-service
+  name: movie-service
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-service
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: movie-service
+    spec:
+      initContainers:
+      - name: check-db-ready
+        image: postgres:9.6.5
+        command: ['sh', '-c', 
+          'until pg_isready -h movie-db-svc -p 5432; 
+          do echo waiting for database; sleep 2; done;']
+      containers:
+        - args:
+            - uvicorn
+            - app.main:app
+            - --reload
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: CAST_SERVICE_HOST_URL
+              value: http://cast_service:8000/api/v1/casts/
+            - name: DATABASE_URI
+              value: postgresql://movie_db_username:movie_db_password@movie-db-svc/movie_db_dev
+          image: ykadi/movie-service:v1
+          name: movie-service
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          resources: {}
+          # volumeMounts:
+          #   - mountPath: /app
+          #     name: movie-service-claim0
+      restartPolicy: Always
+      # volumes:
+      #   - name: movie-service-claim0
+      #     persistentVolumeClaim:
+      #       claimName: movie-service-claim0
+status: {}

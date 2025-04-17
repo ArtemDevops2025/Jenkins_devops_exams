@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ .Values.movie_svc.app }}
+  name: movie-service
+  namespace: {{ .Values.namespace }}
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: {{ .Values.movie_svc.app }}
+status:
+  loadBalancer: {}

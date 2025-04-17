@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.cast_svc.app }}
+  name: {{ .Values.cast_svc.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.cast_db.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.cast_svc.app }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.cast_svc.app }}
+    spec:
+      initContainers:
+      - name: check-db-ready
+        image: postgres:9.6.5
+        command: ['sh', '-c', 
+          'until pg_isready -h cast-db-svc -p 5432; 
+          do echo waiting for database; sleep 2; done;']    
+      containers:
+        - args:
+            - uvicorn
+            - app.main:app
+            - --reload
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: DATABASE_URI
+              value: postgresql://cast_db_username:cast_db_password@cast-db-svc/cast_db_dev
+          image: "{{ .Values.cast_svc.image.name }}:{{ .Values.cast_svc.image.tag }}"
+          name: cast-service
+          ports:
+            - containerPort: {{ .Values.cast_svc.containerPort }}
+              protocol: TCP
+          resources: {}
+      restartPolicy: Always
+status: {}

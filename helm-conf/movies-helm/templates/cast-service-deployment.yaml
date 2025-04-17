@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.cast_svc.app }}
+  name: cast-service
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.cast_svc.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.cast_svc.app }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.cast_svc.app }}
+    spec:
+      containers:
+        - args:
+            - uvicorn
+            - app.main:app
+            - --reload
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: DATABASE_URI
+              value: postgresql://cast_db_username:cast_db_password@cast-db-svc/cast_db_dev
+          image: "{{ .Values.cast_svc.image.name }}:{{ .Values.cast_svc.image.tag }}"
+          name: cast-service
+          ports:
+            - containerPort: {{ .Values.cast_svc.containerPort }}
+              protocol: TCP
+          resources: {}
+          # volumeMounts:
+          #   - mountPath: /app
+          #     name: cast-service-claim0
+      restartPolicy: Always
+      # volumes:
+      #   - name: cast-service-claim0
+      #     persistentVolumeClaim:
+      #       claimName: cast-service-claim0
+status: {}

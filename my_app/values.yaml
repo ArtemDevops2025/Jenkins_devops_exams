@@ -1,0 +1,88 @@
+namespace: movie-app
+
+
+### Casts app Values ###
+
+cast_db:
+   name: cast-db
+   app: cast-db
+   containerPort: 5432    
+   replicaCount: 1
+   configMap: cast-db-conf
+   secret: cast-db-password
+
+volumeMounts:
+  mountPath: /var/lib/postgresql/data
+  name: postgres-data-cast
+  restartPolicy: Always
+
+volumes:
+    name: postgres-data-cast
+    claimName: postgres-data-cast
+resources:
+      storage: 100Mi     
+   
+
+cast_svc:
+  name: cast-service 
+  app: cast-service
+  replicaCount: 1
+  containerPort: 8000  
+  image:
+    name: ykadi/cast-service
+    pullPolicy: IfNotPresent
+    tag: 
+  configMap: cast-svc-conf
+
+
+### Movies app Values ###
+
+movie_db:
+   name: movie-db 
+   app: movie-db
+   containerPort: 5432 
+   replicaCount: 1 
+   configMap: movie-db-conf
+   secret: movie-db-password
+
+   volumeMounts:
+      mountPath: /var/lib/postgresql/data
+      name: postgres-data-movie
+      restartPolicy: Always
+   volumes:
+      name: postgres-data-movie
+      claimName: postgres-data-movie
+   resources:
+      storage: 100Mi 
+
+movie_svc:
+  name: movie-service
+  app: movie-service
+  replicaCount: 1
+  containerPort: 8000  
+  image:
+    name: ykadi/movie-service
+    pullPolicy: IfNotPresent
+    tag: 
+  configMap: movie-svc-conf 
+
+
+
+#### Ingress Values ###
+
+ingress:
+  enabled: true
+  name: myingress
+  className: "traefik"
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: jenkins.devops-youss.cloudns.ph
+  #     paths:
+  #       - path: /api/v1/casts
+  #         pathType: Prefix
+  # tls: []
+  # #  - secretName: chart-example-tls
+  # #    hosts:
+  # #      - chart-example.local
