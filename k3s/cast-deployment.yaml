@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cast-deployment
+  labels:
+    app: cast-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cast-service
+  template:
+    metadata:
+      labels:
+        app: cast-service
+    spec:
+      containers:
+        - name: cast-service
+          image: art2025/jenkins-exam:cast
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+---
