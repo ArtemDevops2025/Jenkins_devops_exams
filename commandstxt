@@ -1,0 +1,3 @@
+kubectl exec -it jenkins-699bdbb475-cg2gf -n jenkins -- cat /var/jenkins_home/se
+crets/initialAdminPassword
+c5ff3e346949495fb008ef30dac64aff
