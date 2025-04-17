@@ -20,3 +20,6 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          env:
+            - name: DATABASE_URI
+              value: postgresql://cast_user:cast_pass@cast-db:5432/cast_db
