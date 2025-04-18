@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: cast-service
-          image: art2025/jenkins-exam:cast
+          image: art2025/jenkins-exam-cast:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000

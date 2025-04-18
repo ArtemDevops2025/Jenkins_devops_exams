@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: movies-app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /movies/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: movie-service
+            port:
+              number: 80
+      - path: /casts/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: cast-service
+            port:
+              number: 80

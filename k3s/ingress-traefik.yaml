@@ -1,0 +1,21 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: movies-app-ingress
+spec:
+  entryPoints:
+    - web
+  routes:
+  # Movie Service
+  - match: PathPrefix(`/api/v1/movies`)
+    kind: Rule
+    services:
+    - name: movie-service
+      port: 80
+  
+  # Cast Service
+  - match: PathPrefix(`/api/v1/casts`)
+    kind: Rule
+    services:
+    - name: cast-service
+      port: 80
