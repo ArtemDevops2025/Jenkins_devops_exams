@@ -10,6 +10,18 @@ pipeline {
     }
 
     stages {
+
+        stage('Debug Branch Info') {
+            steps {
+                script {
+                    echo ">>> BRANCH_NAME = ${env.BRANCH_NAME}"
+                    echo ">>> GIT_BRANCH = ${env.GIT_BRANCH}"
+                    sh 'git rev-parse --abbrev-ref HEAD || true'
+                    sh 'printenv | grep -i BRANCH || true'
+                }
+            }
+        }
+
         stage('Build') {
             parallel {
                 stage('Build Movie Service') {
@@ -61,7 +73,7 @@ pipeline {
                 anyOf {
                     branch 'dev'
                     branch 'qa'
-                    branch 'main'
+                    expression { env.BRANCH_NAME == 'main' || env.GIT_BRANCH?.contains('main') }
                 }
             }
             steps {
@@ -72,16 +84,16 @@ pipeline {
                         kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
                         kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
                         kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=2m
                         kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=2m
                     """
@@ -91,13 +103,12 @@ pipeline {
 
         stage('Deploy Prod') {
             when {
-                branch 'main'
-                beforeAgent true
+                expression { env.BRANCH_NAME == 'main' || env.GIT_BRANCH?.contains('main') }
             }
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     input(
-                        message: "Confirm PRODUCTION deployment to ${env.NAMESPACE}?",
+                        message: "🚨 Confirm PRODUCTION deployment to ${env.NAMESPACE}?",
                         ok: "Deploy"
                     )
                 }
@@ -108,16 +119,16 @@ pipeline {
                         kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
                         kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
                         kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
-                        
+
                         kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=3m
                         kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=3m
                     """
@@ -137,7 +148,6 @@ pipeline {
                 }
             }
         }
-
         success {
             script {
                 if (env.BRANCH_NAME == 'main') {
