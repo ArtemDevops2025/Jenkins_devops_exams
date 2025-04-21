@@ -73,14 +73,12 @@ pipeline {
                         kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
                         
-                        kubectl set image deployment/cast-deployment \
-                            cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
-                            kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-                            
-                        kubectl set image deployment/movie-deployment \
-                            movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
-                            kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-                            
+                        kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
+                        kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
+                        
+                        kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
+                        kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
+                        
                         kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
                         
@@ -111,14 +109,12 @@ pipeline {
                         kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
                         
-                        kubectl set image deployment/cast-deployment \
-                            cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
-                            kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-                            
-                        kubectl set image deployment/movie-deployment \
-                            movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
-                            kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-                            
+                        kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
+                        kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
+                        
+                        kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
+                        kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
+                        
                         kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
                         kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
                         
@@ -141,13 +137,16 @@ pipeline {
                 }
             }
         }
+
         success {
             script {
                 if (env.BRANCH_NAME == 'main') {
                     slackSend(
                         color: 'good',
-                        message: "PRODUCTION Deployment Successful: ${env.BUILD_URL}"
+                        message: "✅ PRODUCTION Deployment Successful: ${env.BUILD_URL}"
                     )
+                } else {
+                    echo "✅ Pre-prod deployment complete on branch: ${env.BRANCH_NAME}"
                 }
             }
         }
