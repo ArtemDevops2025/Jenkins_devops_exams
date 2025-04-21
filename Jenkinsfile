@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub')
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
-        NAMESPACE = "${env.BRANCH_NAME == 'master' ? 'prod' : env.BRANCH_NAME}"
+        NAMESPACE = "${env.BRANCH_NAME == 'main' ? 'prod' : env.BRANCH_NAME}"
         MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
         CAST_IMAGE = "art2025/jenkins-exam:cast-${env.BUILD_NUMBER}"
     }
@@ -61,6 +61,7 @@ pipeline {
                 anyOf {
                     branch 'dev'
                     branch 'qa'
+                    branch 'main'
                 }
             }
             steps {
@@ -92,7 +93,7 @@ pipeline {
 
         stage('Deploy Prod') {
             when {
-                branch 'master'
+                branch 'main'
                 beforeAgent true
             }
             steps {
@@ -142,7 +143,7 @@ pipeline {
         }
         success {
             script {
-                if (env.BRANCH_NAME == 'master') {
+                if (env.BRANCH_NAME == 'main') {
                     slackSend(
                         color: 'good',
                         message: "PRODUCTION Deployment Successful: ${env.BUILD_URL}"
