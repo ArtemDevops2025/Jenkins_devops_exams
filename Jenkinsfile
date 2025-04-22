@@ -110,26 +110,13 @@ pipeline {
         }
         success {
             script {
-                slackSend(
-                    color: CURRENT_BRANCH == 'master' ? 'good' : '#439FE0',
-                    message: """${CURRENT_BRANCH == 'master' ? '✅ PRODUCTION' : '🚀 Development'} Deployment Success
-                    *Branch*: ${CURRENT_BRANCH}
-                    *Namespace*: ${NAMESPACE}
-                    *Build*: ${env.BUILD_NUMBER}
-                    *Details*: ${env.BUILD_URL}"""
-                )
+                echo "✅ Deployment succeeded for ${CURRENT_BRANCH} (Build #${env.BUILD_NUMBER})"
             }
         }
         failure {
             script {
-                slackSend(
-                    color: 'danger',
-                    message: """❌ Deployment Failed
-                    *Branch*: ${CURRENT_BRANCH}
-                    *Namespace*: ${NAMESPACE}
-                    *Build*: ${env.BUILD_NUMBER}
-                    *Logs*: ${env.BUILD_URL}"""
-                )
+                echo "❌ Deployment failed for ${CURRENT_BRANCH} (Build #${env.BUILD_NUMBER})"
+                echo "View logs: ${env.BUILD_URL}"
                 rollbackDeployment()
             }
         }
