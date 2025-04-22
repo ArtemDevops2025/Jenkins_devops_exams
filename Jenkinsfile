@@ -13,17 +13,19 @@ pipeline {
     stages {
         stage('Checkout and Initialize') {
             steps {
-                checkout scm
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/dev']],  // Explicitly check out the dev branch
+                    extensions: [],
+                    userRemoteConfigs: [[url: 'https://github.com/ArtemDevops2025/jenkins_devops_exams']]
+                ])
+                
                 script {
-                    // Get the actual branch name (works for multibranch pipelines)
-                    BRANCH_NAME = env.GIT_BRANCH ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                    BRANCH_NAME = BRANCH_NAME.replace('origin/', '')
+                    // Get branch name reliably
+                    BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
                     
-                    // Set namespace based on branch
-                    NAMESPACE = BRANCH_NAME.toLowerCase() == 'main' ? 'prod' : 
-                               BRANCH_NAME.toLowerCase() == 'dev' ? 'dev' :
-                               BRANCH_NAME.toLowerCase() == 'qa' ? 'qa' :
-                               BRANCH_NAME.toLowerCase() == 'staging' ? 'staging' : 'default'
+                    // Force namespace mapping
+                    NAMESPACE = "dev"  // Hardcoded for dev branch
                     
                     // Set image tags
                     MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
@@ -90,28 +92,6 @@ pipeline {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        stage('Production Approval') {
-            when { 
-                expression { return env.NAMESPACE == 'prod' }
-            }
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    input(
-                        message: "🚨 PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
-                        ok: "Deploy to Production",
-                        parameters: [
-                            string(
-                                defaultValue: '',
-                                description: 'Enter reason for production deployment',
-                                name: 'DEPLOY_REASON'
-                            )
-                        ],
-                        submitter: "admin"
-                    )
                 }
             }
         }
