@@ -11,23 +11,19 @@ pipeline {
     }
 
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout and Initialize') {
             steps {
                 checkout scm
                 script {
-                    // Get the actual branch name
-                    BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    // Get the actual branch name (works for multibranch pipelines)
+                    BRANCH_NAME = env.GIT_BRANCH ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    BRANCH_NAME = BRANCH_NAME.replace('origin/', '')
                     
                     // Set namespace based on branch
-                    NAMESPACE = sh(script: '''
-                        case "$BRANCH_NAME" in
-                            "main")     echo "prod"    ;;
-                            "dev")      echo "dev"     ;;
-                            "qa")       echo "qa"      ;;
-                            "staging")  echo "staging" ;;
-                            *)          echo "default" ;;
-                        esac
-                    ''', returnStdout: true).trim()
+                    NAMESPACE = BRANCH_NAME.toLowerCase() == 'main' ? 'prod' : 
+                               BRANCH_NAME.toLowerCase() == 'dev' ? 'dev' :
+                               BRANCH_NAME.toLowerCase() == 'qa' ? 'qa' :
+                               BRANCH_NAME.toLowerCase() == 'staging' ? 'staging' : 'default'
                     
                     // Set image tags
                     MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
