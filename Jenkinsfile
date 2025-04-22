@@ -1,97 +1,54 @@
 pipeline {
-  agent any
+    agent any
 
-  parameters {
-    booleanParam(name: 'DEPLOY_PREPROD', defaultValue: false, description: 'Deploy to Pre-Prod?')
-    booleanParam(name: 'DEPLOY_PROD', defaultValue: false, description: 'Deploy to Prod?')
-  }
-
-  environment {
-    DOCKER_IMAGE_NAME = 'art2025/jenkins-exam'
-    MOVIE_IMAGE_TAG = 'movie-24'
-    CAST_IMAGE_TAG = 'cast-24'
-    NAMESPACE = 'movie-app'
-    KUBE_CONTEXT = 'default'
-  }
-
-  stages {
-    stage('Verify Setup') {
-      steps {
-        script {
-          def branchName = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
-          echo "GIT BRANCH: ${branchName}"
-          echo "NAMESPACE: ${env.NAMESPACE}"
-          echo "KUBE_CONTEXT: ${env.KUBE_CONTEXT}"
-          sh 'kubectl config get-contexts'
-        }
-      }
+    environment {
+        DOCKER_REGISTRY = 'art2025/jenkins-exam'
+        KUBECONFIG = '/etc/rancher/k3s/k3s.yaml'
     }
 
-    stage('Build') {
-      parallel {
-        stage('Build Movie Service') {
-          steps {
-            dir('movie-service') {
-              script {
-                sh "docker build -t ${DOCKER_IMAGE_NAME}:${MOVIE_IMAGE_TAG} ."
-              }
+    stages {
+        stage('Build and Push Movie Image') {
+            steps {
+                script {
+                    def movieImage = docker.build("${DOCKER_REGISTRY}:movie-${BUILD_NUMBER}", "movie-service")
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                        movieImage.push()
+                    }
+                }
             }
-          }
         }
-        stage('Build Cast Service') {
-          steps {
-            dir('cast-service') {
-              script {
-                sh "docker build -t ${DOCKER_IMAGE_NAME}:${CAST_IMAGE_TAG} ."
-              }
+
+        stage('Build and Push Cast Image') {
+            steps {
+                script {
+                    def castImage = docker.build("${DOCKER_REGISTRY}:cast-${BUILD_NUMBER}", "cast-service")
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                        castImage.push()
+                    }
+                }
             }
-          }
         }
-      }
-    }
 
-    stage('Push') {
-      parallel {
-        stage('Push Movie Service') {
-          steps {
-            script {
-              docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                sh "docker tag ${DOCKER_IMAGE_NAME}:${MOVIE_IMAGE_TAG} index.docker.io/${DOCKER_IMAGE_NAME}:${MOVIE_IMAGE_TAG}"
-                sh "docker push index.docker.io/${DOCKER_IMAGE_NAME}:${MOVIE_IMAGE_TAG}"
-              }
+        stage('Deploy to K3s') {
+            steps {
+                script {
+                    withEnv(["KUBECONFIG=${KUBECONFIG}"]) {
+                        sh '''
+                            kubectl apply -f k3s/cast-db-deployment.yaml
+                            kubectl apply -f k3s/cast-db-service.yaml
+                            kubectl apply -f k3s/cast-deployment.yaml
+                            kubectl apply -f k3s/cast-service.yaml
+
+                            kubectl apply -f k3s/movie-db-deployment.yaml
+                            kubectl apply -f k3s/movie-db-service.yaml
+                            kubectl apply -f k3s/movie-deployment.yaml
+                            kubectl apply -f k3s/movie-service.yaml
+
+                            kubectl apply -f k3s/ingress.yaml
+                        '''
+                    }
+                }
             }
-          }
         }
-
-        stage('Push Cast Service') {
-          steps {
-            script {
-              docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                sh "docker tag ${DOCKER_IMAGE_NAME}:${CAST_IMAGE_TAG} index.docker.io/${DOCKER_IMAGE_NAME}:${CAST_IMAGE_TAG}"
-                sh "docker push index.docker.io/${DOCKER_IMAGE_NAME}:${CAST_IMAGE_TAG}"
-              }
-            }
-          }
-        }
-      }
     }
-
-    stage('Deploy Pre-Prod') {
-      when {
-        expression { return params.DEPLOY_PREPROD }
-      }
-      steps {
-        sh 'kubectl apply -f k8s/preprod.yaml'
-      }
-    }
-
-    stage('Deploy Prod') {
-      when {
-        expression { return params.DEPLOY_PROD }
-      }
-      steps {
-        sh 'kubectl apply -f k8s/prod.yaml'
-      }
-    }
-  }
 }
