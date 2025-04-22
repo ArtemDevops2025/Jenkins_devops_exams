@@ -2,26 +2,40 @@ pipeline {
     agent any
 
     environment {
+        // 1. Credentials
         DOCKERHUB_CREDENTIALS = credentials('dockerhub')
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
-        NAMESPACE = "${env.BRANCH_NAME == 'main' ? 'prod' : env.BRANCH_NAME}"
+        
+        // 2. Kubernetes Configuration
+        KUBE_CONTEXT = "default"  // Matches your current context
+        IS_PROD = "${env.BRANCH_NAME == 'main'}"
+        
+        // 3. Dynamic Namespace (matches your existing namespaces)
+        NAMESPACE = "${env.BRANCH_NAME == 'main' ? 'prod' : 
+                    env.BRANCH_NAME == 'dev' ? 'dev' : 
+                    env.BRANCH_NAME == 'qa' ? 'qa' : 
+                    'movie-app'}"
+        
+        // 4. Image Tags
         MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
         CAST_IMAGE = "art2025/jenkins-exam:cast-${env.BUILD_NUMBER}"
     }
 
     stages {
-
-        stage('Debug Branch Info') {
+        // Stage 1: Verify Environment
+        stage('Verify Setup') {
             steps {
                 script {
-                    echo ">>> BRANCH_NAME = ${env.BRANCH_NAME}"
-                    echo ">>> GIT_BRANCH = ${env.GIT_BRANCH}"
-                    sh 'git rev-parse --abbrev-ref HEAD || true'
-                    sh 'printenv | grep -i BRANCH || true'
+                    echo "========== ENVIRONMENT =========="
+                    echo "BRANCH: ${env.BRANCH_NAME}"
+                    echo "NAMESPACE: ${NAMESPACE}"
+                    echo "KUBE_CONTEXT: ${KUBE_CONTEXT}"
+                    sh 'kubectl config get-contexts'
                 }
             }
         }
 
+        // Stage 2: Build Docker Images
         stage('Build') {
             parallel {
                 stage('Build Movie Service') {
@@ -45,6 +59,7 @@ pipeline {
             }
         }
 
+        // Stage 3: Push Images
         stage('Push') {
             parallel {
                 stage('Push Movie Service') {
@@ -68,70 +83,59 @@ pipeline {
             }
         }
 
-        stage('Deploy Pre-Prod') {
-            when {
-                anyOf {
-                    branch 'dev'
-                    branch 'qa'
-                    expression { env.BRANCH_NAME == 'main' || env.GIT_BRANCH?.contains('main') }
-                }
-            }
-            steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh """
-                        kubectl create namespace ${env.NAMESPACE} || true
-                        kubectl apply -f k3s/cast-db-deployment.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
-
-                        kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
-                        kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-
-                        kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
-                        kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-
-                        kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
-
-                        kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=2m
-                        kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=2m
-                    """
-                }
-            }
-        }
-
-        stage('Deploy Prod') {
-            when {
-                expression { env.BRANCH_NAME == 'main' || env.GIT_BRANCH?.contains('main') }
+        // Stage 4: Production Approval
+        stage('Production Approval') {
+            when { 
+                branch 'main' 
             }
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     input(
-                        message: "🚨 Confirm PRODUCTION deployment to ${env.NAMESPACE}?",
-                        ok: "Deploy"
+                        message: "🚀 PRODUCTION DEPLOYMENT APPROVAL\n" +
+                                "Build: #${env.BUILD_NUMBER}\n" +
+                                "Images: ${MOVIE_IMAGE}, ${CAST_IMAGE}",
+                        ok: "Deploy",
+                        submitter: "admin"
                     )
                 }
+            }
+        }
+
+        // Stage 5: Deploy
+        stage('Deploy') {
+            steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh """
-                        kubectl create namespace ${env.NAMESPACE} || true
-                        kubectl apply -f k3s/cast-db-deployment.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
-
-                        kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${env.NAMESPACE} || \
-                        kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
-
-                        kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${env.NAMESPACE} || \
-                        kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
-
-                        kubectl apply -f k3s/cast-service.yaml -n ${env.NAMESPACE}
-                        kubectl apply -f k3s/movie-service.yaml -n ${env.NAMESPACE}
-
-                        kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=3m
-                        kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=3m
-                    """
+                    script {
+                        sh """
+                            kubectl config use-context ${KUBE_CONTEXT}
+                            
+                            # Create namespace if not exists
+                            kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+                            
+                            # Label namespace
+                            kubectl label namespace ${NAMESPACE} \
+                                environment=${IS_PROD ? 'production' : 'development'} \
+                                branch=${env.BRANCH_NAME} \
+                                --overwrite
+                            
+                            # Deploy databases
+                            kubectl apply -f k3s/cast-db-deployment.yaml -n ${NAMESPACE}
+                            kubectl apply -f k3s/cast-db-service.yaml -n ${NAMESPACE}
+                            kubectl apply -f k3s/movie-db-deployment.yaml -n ${NAMESPACE}
+                            kubectl apply -f k3s/movie-db-service.yaml -n ${NAMESPACE}
+                            
+                            # Deploy services
+                            kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${NAMESPACE} || \
+                            kubectl apply -f k3s/cast-deployment.yaml -n ${NAMESPACE}
+                            
+                            kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${NAMESPACE} || \
+                            kubectl apply -f k3s/movie-deployment.yaml -n ${NAMESPACE}
+                            
+                            # Verify
+                            kubectl rollout status deployment/cast-deployment -n ${NAMESPACE} --timeout=3m
+                            kubectl rollout status deployment/movie-deployment -n ${NAMESPACE} --timeout=3m
+                        """
+                    }
                 }
             }
         }
@@ -139,26 +143,21 @@ pipeline {
 
     post {
         failure {
-            script {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh """
-                        kubectl rollout undo deployment/cast-deployment -n ${env.NAMESPACE} || true
-                        kubectl rollout undo deployment/movie-deployment -n ${env.NAMESPACE} || true
-                    """
-                }
-            }
+            slackSend(
+                color: 'danger',
+                message: "❌ DEPLOYMENT FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}\n" +
+                         "Branch: ${env.BRANCH_NAME}\n" +
+                         "More: ${env.BUILD_URL}"
+            )
         }
         success {
-            script {
-                if (env.BRANCH_NAME == 'main') {
-                    slackSend(
-                        color: 'good',
-                        message: "✅ PRODUCTION Deployment Successful: ${env.BUILD_URL}"
-                    )
-                } else {
-                    echo "✅ Pre-prod deployment complete on branch: ${env.BRANCH_NAME}"
-                }
-            }
+            slackSend(
+                color: 'good',
+                message: "✅ DEPLOYMENT SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}\n" +
+                         "Namespace: ${NAMESPACE}\n" +
+                         "Images: ${MOVIE_IMAGE}, ${CAST_IMAGE}\n" +
+                         "Details: ${env.BUILD_URL}"
+            )
         }
     }
 }
