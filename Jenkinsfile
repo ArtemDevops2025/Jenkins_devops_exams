@@ -4,9 +4,9 @@ pipeline {
     environment {
         // 1. Dynamic Namespace based on the Git branch
         NAMESPACE = "${env.BRANCH_NAME == 'main' ? 'prod' : 
-                    env.BRANCH_NAME == 'dev' ? 'dev' : 
-                    env.BRANCH_NAME == 'qa' ? 'qa' : 
-                    'movie-app'}"
+                    (env.BRANCH_NAME == 'dev' ? 'dev' : 
+                    (env.BRANCH_NAME == 'qa' ? 'qa' : 
+                    'movie-app'))}"
 
         // 2. Dynamic Image Tags
         MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
