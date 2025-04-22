@@ -13,19 +13,23 @@ pipeline {
     stages {
         stage('Checkout and Initialize') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/dev']],  // Explicitly check out the dev branch
-                    extensions: [],
-                    userRemoteConfigs: [[url: 'https://github.com/ArtemDevops2025/jenkins_devops_exams']]
-                ])
-                
+                checkout scm
                 script {
-                    // Get branch name reliably
-                    BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    // Get branch name from Jenkins environment variables
+                    BRANCH_NAME = env.GIT_BRANCH ? env.GIT_BRANCH.replace('origin/', '') : 'dev'
                     
-                    // Force namespace mapping
-                    NAMESPACE = "dev"  // Hardcoded for dev branch
+                    // Force namespace based on branch (override any detection issues)
+                    if (BRANCH_NAME == 'main') {
+                        NAMESPACE = 'prod'
+                    } else if (BRANCH_NAME == 'dev') {
+                        NAMESPACE = 'dev'
+                    } else if (BRANCH_NAME == 'qa') {
+                        NAMESPACE = 'qa'
+                    } else if (BRANCH_NAME == 'staging') {
+                        NAMESPACE = 'staging'
+                    } else {
+                        NAMESPACE = 'default'
+                    }
                     
                     // Set image tags
                     MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
@@ -92,6 +96,28 @@ pipeline {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        stage('Production Approval') {
+            when { 
+                expression { return env.NAMESPACE == 'prod' }
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    input(
+                        message: "🚨 PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
+                        ok: "Deploy to Production",
+                        parameters: [
+                            string(
+                                defaultValue: '',
+                                description: 'Enter reason for production deployment',
+                                name: 'DEPLOY_REASON'
+                            )
+                        ],
+                        submitter: "admin"
+                    )
                 }
             }
         }
