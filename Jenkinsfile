@@ -1,6 +1,3 @@
-Here's the optimized Jenkinsfile incorporating all your requirements:
-
-```groovy
 pipeline {
     agent any
 
@@ -170,4 +167,3 @@ def rollbackDeployment() {
         """
     }
 }
-```
