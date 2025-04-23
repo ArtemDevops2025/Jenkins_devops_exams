@@ -1,59 +1,68 @@
 pipeline {
     agent any
 
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        skipStagesAfterUnstable()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
     environment {
-        // 1. Docker Hub credentials
         DOCKERHUB_CREDENTIALS = credentials('dockerhub')
-        // 2. Kubernetes config
         KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
-        
-        // 3. Dynamic namespace mapping
-        NAMESPACE = sh(script: '''
-            BRANCH=$(git rev-parse --abbrev-ref HEAD)
-            case "$BRANCH" in
-                "main")     echo "prod"    ;;
-                "dev")      echo "dev"     ;;
-                "qa")       echo "qa"      ;;
-                "staging")  echo "staging" ;;
-                *)          echo "default" ;;
-            esac
-        ''', returnStdout: true).trim()
-        
-        // 4. Image tags with build numbers
-        MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
-        CAST_IMAGE = "art2025/jenkins-exam:cast-${env.BUILD_NUMBER}"
     }
 
     stages {
-        // Stage 1: Environment Verification
+        stage('Checkout and Initialize') {
+            steps {
+                script {
+                    def BRANCH_NAME = env.GIT_BRANCH ? env.GIT_BRANCH.replace('origin/', '') : sh(
+                        script: 'git rev-parse --abbrev-ref HEAD', 
+                        returnStdout: true
+                    ).trim()
+
+                    env.NAMESPACE = BRANCH_NAME.toLowerCase() == 'main' ? 'prod' : 
+                                   BRANCH_NAME.toLowerCase() == 'dev' ? 'dev' :
+                                   BRANCH_NAME.toLowerCase() == 'qa' ? 'qa' :
+                                   BRANCH_NAME.toLowerCase() == 'staging' ? 'staging' : 
+                                   'default'
+
+                    if (!['dev','qa','staging','prod','default'].contains(env.NAMESPACE)) {
+                        error("Invalid namespace derived: ${env.NAMESPACE}")
+                    }
+
+                    env.MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.NAMESPACE}-${env.BUILD_NUMBER}"
+                    env.CAST_IMAGE = "art2025/jenkins-exam:cast-${env.NAMESPACE}-${env.BUILD_NUMBER}"
+
+                    echo "========== DEPLOYMENT CONFIG =========="
+                    echo "Branch:       ${BRANCH_NAME}"
+                    echo "Namespace:    ${env.NAMESPACE}"
+                    echo "Is Production: ${env.NAMESPACE == 'prod'}"
+                    echo "Movie Image:  ${env.MOVIE_IMAGE}"
+                    echo "Cast Image:   ${env.CAST_IMAGE}"
+                }
+            }
+        }
+
         stage('Verify Environment') {
             steps {
                 script {
-                    // Get actual branch name for logging
-                    ACTUAL_BRANCH = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                    
-                    echo "========== DEPLOYMENT CONFIG =========="
-                    echo "Branch:       ${ACTUAL_BRANCH}"
-                    echo "Namespace:    ${NAMESPACE}"
-                    echo "Is Production: ${NAMESPACE == 'prod'}"
-                    
-                    // Create namespace if it doesn't exist
                     sh """
-                        kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-                        kubectl label namespace ${NAMESPACE} env=${NAMESPACE} --overwrite
+                        kubectl create namespace ${env.NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+                        kubectl label namespace ${env.NAMESPACE} env=${env.NAMESPACE} --overwrite
+                        kubectl config get-contexts
                     """
                 }
             }
         }
 
-        // Stage 2: Build Docker Images (parallel)
         stage('Build Images') {
             parallel {
                 stage('Build Movie Service') {
                     steps {
                         dir('movie-service') {
                             script {
-                                docker.build(MOVIE_IMAGE)
+                                docker.build(env.MOVIE_IMAGE)
                             }
                         }
                     }
@@ -62,7 +71,7 @@ pipeline {
                     steps {
                         dir('cast-service') {
                             script {
-                                docker.build(CAST_IMAGE)
+                                docker.build(env.CAST_IMAGE)
                             }
                         }
                     }
@@ -70,14 +79,13 @@ pipeline {
             }
         }
 
-        // Stage 3: Push Images (parallel)
         stage('Push Images') {
             parallel {
                 stage('Push Movie Image') {
                     steps {
                         script {
                             docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                                docker.image(MOVIE_IMAGE).push()
+                                docker.image(env.MOVIE_IMAGE).push()
                             }
                         }
                     }
@@ -86,7 +94,7 @@ pipeline {
                     steps {
                         script {
                             docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                                docker.image(CAST_IMAGE).push()
+                                docker.image(env.CAST_IMAGE).push()
                             }
                         }
                     }
@@ -94,7 +102,6 @@ pipeline {
             }
         }
 
-        // Stage 4: Production Approval Gate
         stage('Production Approval') {
             when { 
                 expression { return env.NAMESPACE == 'prod' }
@@ -102,7 +109,7 @@ pipeline {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     input(
-                        message: "🚨 PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
+                        message: "PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
                         ok: "Deploy to Production",
                         parameters: [
                             string(
@@ -117,44 +124,38 @@ pipeline {
             }
         }
 
-        // Stage 5: Deploy to Kubernetes
         stage('Deploy') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     script {
-                        // Deploy databases
                         sh """
-                            kubectl apply -f k3s/cast-db-deployment.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/cast-db-service.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/movie-db-deployment.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/movie-db-service.yaml -n ${NAMESPACE}
-                        """
-                        
-                        // Deploy applications with rollout strategy
-                        sh """
-                            kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${NAMESPACE} || \\
-                            kubectl apply -f k3s/cast-deployment.yaml -n ${NAMESPACE}
+                            kubectl apply -f k3s/cast-db-deployment.yaml -n ${env.NAMESPACE}
+                            kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
+                            kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
+                            kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
                             
-                            kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${NAMESPACE} || \\
-                            kubectl apply -f k3s/movie-deployment.yaml -n ${NAMESPACE}
+                            kubectl set image deployment/cast-deployment cast-service=${env.CAST_IMAGE} -n ${env.NAMESPACE} || \\
+                            kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
                             
-                            kubectl rollout status deployment/cast-deployment -n ${NAMESPACE} --timeout=3m
-                            kubectl rollout status deployment/movie-deployment -n ${NAMESPACE} --timeout=3m
+                            kubectl set image deployment/movie-deployment movie-service=${env.MOVIE_IMAGE} -n ${env.NAMESPACE} || \\
+                            kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
+                            
+                            kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=3m
+                            kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=3m
                         """
                     }
                 }
             }
         }
 
-        // Stage 6: Verification
         stage('Verify Deployment') {
             steps {
                 script {
                     sh """
-                        echo "========== ${NAMESPACE} STATUS =========="
-                        kubectl get deployments -n ${NAMESPACE}
-                        kubectl get pods -n ${NAMESPACE} -o wide
-                        kubectl get svc -n ${NAMESPACE}
+                        echo "========== ${env.NAMESPACE} STATUS =========="
+                        kubectl get deployments -n ${env.NAMESPACE}
+                        kubectl get pods -n ${env.NAMESPACE} -o wide
+                        kubectl get svc -n ${env.NAMESPACE}
                     """
                 }
             }
@@ -164,20 +165,18 @@ pipeline {
     post {
         always {
             script {
-                ACTUAL_BRANCH = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                echo "Pipeline completed for ${ACTUAL_BRANCH} → ${NAMESPACE}"
+                echo "Pipeline completed for ${env.NAMESPACE} namespace"
+                cleanWs()
             }
         }
         success {
             script {
-                echo "✅ Successfully deployed to ${NAMESPACE} namespace"
-                // Add other notifications here (Slack, email, etc.)
+                echo "Successfully deployed to ${env.NAMESPACE} namespace"
             }
         }
         failure {
             script {
-                echo "❌ Deployment failed to ${NAMESPACE} namespace"
-                // Add failure notifications here
+                echo "Pipeline failed in ${env.NAMESPACE} namespace"
             }
         }
     }
