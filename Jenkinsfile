@@ -2,7 +2,9 @@ pipeline {
     agent any
 
     options {
-        skipDefaultCheckout true
+        timeout(time: 30, unit: 'MINUTES')
+        skipStagesAfterUnstable()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
     environment {
@@ -13,33 +15,40 @@ pipeline {
     stages {
         stage('Checkout and Initialize') {
             steps {
-                checkout scm
                 script {
-                    // Get branch name from Jenkins environment (works in multibranch)
-                    def BRANCH_NAME = env.BRANCH_NAME.replace('origin/', '')
-                    
-                    // Set namespace based on branch
-                    def NAMESPACE = 'default'
-                    if (BRANCH_NAME == 'main') {
-                        NAMESPACE = 'prod'
-                    } else if (BRANCH_NAME == 'dev') {
-                        NAMESPACE = 'dev'
-                    } else if (BRANCH_NAME == 'qa') {
-                        NAMESPACE = 'qa'
-                    } else if (BRANCH_NAME == 'staging') {
-                        NAMESPACE = 'staging'
+                    try {
+                        // Get branch name reliably
+                        def BRANCH_NAME = env.GIT_BRANCH ? env.GIT_BRANCH.replace('origin/', '') : sh(
+                            script: 'git rev-parse --abbrev-ref HEAD', 
+                            returnStdout: true
+                        ).trim()
+
+                        // Set namespace based on branch
+                        env.NAMESPACE = BRANCH_NAME.toLowerCase() == 'main' ? 'prod' : 
+                                       BRANCH_NAME.toLowerCase() == 'dev' ? 'dev' :
+                                       BRANCH_NAME.toLowerCase() == 'qa' ? 'qa' :
+                                       BRANCH_NAME.toLowerCase() == 'staging' ? 'staging' : 
+                                       'default'
+
+                        // Validate namespace
+                        if (!['dev','qa','staging','prod','default'].contains(env.NAMESPACE)) {
+                            error("Invalid namespace derived: ${env.NAMESPACE}")
+                        }
+
+                        // Set image tags with branch and build number
+                        env.MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.NAMESPACE}-${env.BUILD_NUMBER}"
+                        env.CAST_IMAGE = "art2025/jenkins-exam:cast-${env.NAMESPACE}-${env.BUILD_NUMBER}"
+
+                        echo "========== DEPLOYMENT CONFIG =========="
+                        echo "Branch:       ${BRANCH_NAME}"
+                        echo "Namespace:    ${env.NAMESPACE}"
+                        echo "Is Production: ${env.NAMESPACE == 'prod'}"
+                        echo "Movie Image:  ${env.MOVIE_IMAGE}"
+                        echo "Cast Image:   ${env.CAST_IMAGE}"
+
+                    } catch (Exception e) {
+                        error("Initialization failed: ${e.toString()}")
                     }
-                    
-                    // Set image tags with branch name for traceability
-                    MOVIE_IMAGE = "art2025/jenkins-exam:movie-${BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    CAST_IMAGE = "art2025/jenkins-exam:cast-${BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    
-                    echo "========== DEPLOYMENT CONFIG =========="
-                    echo "Branch:       ${BRANCH_NAME}"
-                    echo "Namespace:    ${NAMESPACE}"
-                    echo "Is Production: ${NAMESPACE == 'prod'}"
-                    echo "Movie Image:  ${MOVIE_IMAGE}"
-                    echo "Cast Image:   ${CAST_IMAGE}"
                 }
             }
         }
@@ -47,10 +56,15 @@ pipeline {
         stage('Verify Environment') {
             steps {
                 script {
-                    sh """
-                        kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-                        kubectl label namespace ${NAMESPACE} env=${NAMESPACE} --overwrite
-                    """
+                    try {
+                        sh """
+                            kubectl create namespace ${env.NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+                            kubectl label namespace ${env.NAMESPACE} env=${env.NAMESPACE} --overwrite
+                            kubectl config get-contexts
+                        """
+                    } catch (Exception e) {
+                        error("Environment verification failed: ${e.toString()}")
+                    }
                 }
             }
         }
@@ -61,7 +75,11 @@ pipeline {
                     steps {
                         dir('movie-service') {
                             script {
-                                docker.build(MOVIE_IMAGE)
+                                try {
+                                    docker.build(env.MOVIE_IMAGE)
+                                } catch (Exception e) {
+                                    error("Movie service build failed: ${e.toString()}")
+                                }
                             }
                         }
                     }
@@ -70,7 +88,11 @@ pipeline {
                     steps {
                         dir('cast-service') {
                             script {
-                                docker.build(CAST_IMAGE)
+                                try {
+                                    docker.build(env.CAST_IMAGE)
+                                } catch (Exception e) {
+                                    error("Cast service build failed: ${e.toString()}")
+                                }
                             }
                         }
                     }
@@ -83,8 +105,12 @@ pipeline {
                 stage('Push Movie Image') {
                     steps {
                         script {
-                            docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                                docker.image(MOVIE_IMAGE).push()
+                            try {
+                                docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
+                                    docker.image(env.MOVIE_IMAGE).push()
+                                }
+                            } catch (Exception e) {
+                                error("Movie image push failed: ${e.toString()}")
                             }
                         }
                     }
@@ -92,8 +118,12 @@ pipeline {
                 stage('Push Cast Image') {
                     steps {
                         script {
-                            docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                                docker.image(CAST_IMAGE).push()
+                            try {
+                                docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
+                                    docker.image(env.CAST_IMAGE).push()
+                                }
+                            } catch (Exception e) {
+                                error("Cast image push failed: ${e.toString()}")
                             }
                         }
                     }
@@ -127,21 +157,25 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     script {
-                        sh """
-                            kubectl apply -f k3s/cast-db-deployment.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/cast-db-service.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/movie-db-deployment.yaml -n ${NAMESPACE}
-                            kubectl apply -f k3s/movie-db-service.yaml -n ${NAMESPACE}
-                            
-                            kubectl set image deployment/cast-deployment cast-service=${CAST_IMAGE} -n ${NAMESPACE} || \\
-                            kubectl apply -f k3s/cast-deployment.yaml -n ${NAMESPACE}
-                            
-                            kubectl set image deployment/movie-deployment movie-service=${MOVIE_IMAGE} -n ${NAMESPACE} || \\
-                            kubectl apply -f k3s/movie-deployment.yaml -n ${NAMESPACE}
-                            
-                            kubectl rollout status deployment/cast-deployment -n ${NAMESPACE} --timeout=3m
-                            kubectl rollout status deployment/movie-deployment -n ${NAMESPACE} --timeout=3m
-                        """
+                        try {
+                            sh """
+                                kubectl apply -f k3s/cast-db-deployment.yaml -n ${env.NAMESPACE}
+                                kubectl apply -f k3s/cast-db-service.yaml -n ${env.NAMESPACE}
+                                kubectl apply -f k3s/movie-db-deployment.yaml -n ${env.NAMESPACE}
+                                kubectl apply -f k3s/movie-db-service.yaml -n ${env.NAMESPACE}
+                                
+                                kubectl set image deployment/cast-deployment cast-service=${env.CAST_IMAGE} -n ${env.NAMESPACE} || \\
+                                kubectl apply -f k3s/cast-deployment.yaml -n ${env.NAMESPACE}
+                                
+                                kubectl set image deployment/movie-deployment movie-service=${env.MOVIE_IMAGE} -n ${env.NAMESPACE} || \\
+                                kubectl apply -f k3s/movie-deployment.yaml -n ${env.NAMESPACE}
+                                
+                                kubectl rollout status deployment/cast-deployment -n ${env.NAMESPACE} --timeout=3m
+                                kubectl rollout status deployment/movie-deployment -n ${env.NAMESPACE} --timeout=3m
+                            """
+                        } catch (Exception e) {
+                            error("Deployment failed: ${e.toString()}")
+                        }
                     }
                 }
             }
@@ -150,12 +184,16 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 script {
-                    sh """
-                        echo "========== ${NAMESPACE} STATUS =========="
-                        kubectl get deployments -n ${NAMESPACE}
-                        kubectl get pods -n ${NAMESPACE} -o wide
-                        kubectl get svc -n ${NAMESPACE}
-                    """
+                    try {
+                        sh """
+                            echo "========== ${env.NAMESPACE} STATUS =========="
+                            kubectl get deployments -n ${env.NAMESPACE}
+                            kubectl get pods -n ${env.NAMESPACE} -o wide
+                            kubectl get svc -n ${env.NAMESPACE}
+                        """
+                    } catch (Exception e) {
+                        error("Verification failed: ${e.toString()}")
+                    }
                 }
             }
         }
@@ -164,19 +202,19 @@ pipeline {
     post {
         always {
             script {
-                echo "Pipeline completed for ${BRANCH_NAME} → ${NAMESPACE}"
+                echo "Pipeline completed for ${env.NAMESPACE} namespace"
+                cleanWs()
             }
         }
         success {
             script {
-                echo " Successfully deployed to ${NAMESPACE} namespace"
-                echo "Movie Service: ${MOVIE_IMAGE}"
-                echo "Cast Service: ${CAST_IMAGE}"
+                echo "Successfully deployed to ${env.NAMESPACE} namespace"
             }
         }
         failure {
             script {
-                echo "Deployment failed to ${NAMESPACE} namespace"
+                echo " Pipeline failed in ${env.NAMESPACE} namespace"
+                
             }
         }
     }
