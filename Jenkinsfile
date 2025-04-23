@@ -15,10 +15,11 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Get branch name from Jenkins environment variables
-                    BRANCH_NAME = env.GIT_BRANCH ? env.GIT_BRANCH.replace('origin/', '') : 'dev'
+                    // Get branch name from Jenkins environment (works in multibranch)
+                    def BRANCH_NAME = env.BRANCH_NAME.replace('origin/', '')
                     
-                    // Force namespace based on branch (override any detection issues)
+                    // Set namespace based on branch
+                    def NAMESPACE = 'default'
                     if (BRANCH_NAME == 'main') {
                         NAMESPACE = 'prod'
                     } else if (BRANCH_NAME == 'dev') {
@@ -27,18 +28,18 @@ pipeline {
                         NAMESPACE = 'qa'
                     } else if (BRANCH_NAME == 'staging') {
                         NAMESPACE = 'staging'
-                    } else {
-                        NAMESPACE = 'default'
                     }
                     
-                    // Set image tags
-                    MOVIE_IMAGE = "art2025/jenkins-exam:movie-${env.BUILD_NUMBER}"
-                    CAST_IMAGE = "art2025/jenkins-exam:cast-${env.BUILD_NUMBER}"
+                    // Set image tags with branch name for traceability
+                    MOVIE_IMAGE = "art2025/jenkins-exam:movie-${BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    CAST_IMAGE = "art2025/jenkins-exam:cast-${BRANCH_NAME}-${env.BUILD_NUMBER}"
                     
                     echo "========== DEPLOYMENT CONFIG =========="
                     echo "Branch:       ${BRANCH_NAME}"
                     echo "Namespace:    ${NAMESPACE}"
                     echo "Is Production: ${NAMESPACE == 'prod'}"
+                    echo "Movie Image:  ${MOVIE_IMAGE}"
+                    echo "Cast Image:   ${CAST_IMAGE}"
                 }
             }
         }
@@ -107,7 +108,7 @@ pipeline {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     input(
-                        message: "🚨 PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
+                        message: "PRODUCTION DEPLOYMENT APPROVAL REQUIRED",
                         ok: "Deploy to Production",
                         parameters: [
                             string(
@@ -168,12 +169,14 @@ pipeline {
         }
         success {
             script {
-                echo "✅ Successfully deployed to ${NAMESPACE} namespace"
+                echo " Successfully deployed to ${NAMESPACE} namespace"
+                echo "Movie Service: ${MOVIE_IMAGE}"
+                echo "Cast Service: ${CAST_IMAGE}"
             }
         }
         failure {
             script {
-                echo "❌ Deployment failed to ${NAMESPACE} namespace"
+                echo "Deployment failed to ${NAMESPACE} namespace"
             }
         }
     }
